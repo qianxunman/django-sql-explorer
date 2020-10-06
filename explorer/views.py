@@ -62,7 +62,6 @@ class ExplorerContextMixin(object):
 
 
 class PermissionRequiredMixin(object):
-
     permission_required = None
 
     def get_permission_required(self):
@@ -76,7 +75,7 @@ class PermissionRequiredMixin(object):
     def has_permission(self, request, *args, **kwargs):
         perms = self.get_permission_required()
         handler = getattr(permissions, perms)  # TODO: fix the case when the perms is
-                                               # not defined in permissions module.
+        # not defined in permissions module.
         return handler(request, *args, **kwargs)
 
     def handle_no_permission(self, request):
@@ -113,7 +112,6 @@ def _export(request, query, download=True):
 
 
 class DownloadQueryView(PermissionRequiredMixin, View):
-
     permission_required = 'view_permission'
 
     def get(self, request, query_id, *args, **kwargs):
@@ -122,7 +120,6 @@ class DownloadQueryView(PermissionRequiredMixin, View):
 
 
 class DownloadFromSqlView(PermissionRequiredMixin, View):
-
     permission_required = 'view_permission'
 
     def post(self, request, *args, **kwargs):
@@ -135,16 +132,15 @@ class DownloadFromSqlView(PermissionRequiredMixin, View):
 
 
 class StreamQueryView(PermissionRequiredMixin, View):
-
     permission_required = 'view_permission'
 
     def get(self, request, query_id, *args, **kwargs):
         query = get_object_or_404(Query, pk=query_id)
+        print('query:{}'.format(query))
         return _export(request, query, download=False)
 
 
 class EmailCsvQueryView(PermissionRequiredMixin, View):
-
     permission_required = 'view_permission'
 
     def post(self, request, query_id, *args, **kwargs):
@@ -170,7 +166,7 @@ class SchemaView(PermissionRequiredMixin, View):
         schema = schema_info(connection)
         if schema:
             return render(None, 'explorer/schema.html',
-                                      {'schema': schema_info(connection)})
+                          {'schema': schema_info(connection)})
         else:
             return render(None, 'explorer/schema_building.html')
 
@@ -183,7 +179,6 @@ def format_sql(request):
 
 
 class ListQueryView(PermissionRequiredMixin, ExplorerContextMixin, ListView):
-
     permission_required = 'view_permission_list'
 
     def recently_viewed(self):
@@ -211,7 +206,8 @@ class ListQueryView(PermissionRequiredMixin, ExplorerContextMixin, ListView):
         if app_settings.EXPLORER_PERMISSION_VIEW(self.request.user):
             qs = Query.objects.prefetch_related('created_by_user').all()
         else:
-            qs = Query.objects.prefetch_related('created_by_user').filter(pk__in=allowed_query_pks(self.request.user.id))
+            qs = Query.objects.prefetch_related('created_by_user').filter(
+                pk__in=allowed_query_pks(self.request.user.id))
         return qs.annotate(run_count=Count('querylog'))
 
     def _build_queries_and_headers(self):
@@ -264,7 +260,6 @@ class ListQueryView(PermissionRequiredMixin, ExplorerContextMixin, ListView):
 
 
 class ListQueryLogView(PermissionRequiredMixin, ExplorerContextMixin, ListView):
-
     permission_required = 'view_permission'
 
     def get_queryset(self):
@@ -279,7 +274,6 @@ class ListQueryLogView(PermissionRequiredMixin, ExplorerContextMixin, ListView):
 
 
 class CreateQueryView(PermissionRequiredMixin, ExplorerContextMixin, CreateView):
-
     permission_required = 'change_permission'
 
     def form_valid(self, form):
@@ -291,14 +285,12 @@ class CreateQueryView(PermissionRequiredMixin, ExplorerContextMixin, CreateView)
 
 
 class DeleteQueryView(PermissionRequiredMixin, ExplorerContextMixin, DeleteView):
-
     permission_required = 'change_permission'
     model = Query
     success_url = reverse_lazy("explorer_index")
 
 
 class PlayQueryView(PermissionRequiredMixin, ExplorerContextMixin, View):
-
     permission_required = 'change_permission'
 
     def get(self, request):
@@ -340,7 +332,6 @@ class PlayQueryView(PermissionRequiredMixin, ExplorerContextMixin, View):
 
 
 class QueryView(PermissionRequiredMixin, ExplorerContextMixin, View):
-
     permission_required = 'view_permission'
 
     def get(self, request, query_id):
@@ -376,8 +367,57 @@ class QueryView(PermissionRequiredMixin, ExplorerContextMixin, View):
         form = QueryForm(request.POST if len(request.POST) else None, instance=query)
         return query, form
 
+class QueryViewJson(PermissionRequiredMixin, ExplorerContextMixin, View):
+    permission_required = 'view_permission'
 
-def query_viewmodel(user, query, title=None, form=None, message=None, run_query=True, error=None, rows=app_settings.EXPLORER_DEFAULT_ROWS):
+    def get(self, request, query_id):
+        query, form = QueryView.get_instance_and_form(request, query_id)
+        query.save()  # updates the modified date
+        show = url_get_show(request)
+        rows = url_get_rows(request)
+        vm = query_viewmodel(request.user, query, form=form, run_query=show, rows=rows)
+        fullscreen = url_get_fullscreen(request)
+        template = 'fullscreen' if fullscreen else 'query'
+        headers = vm.get('headers')
+        new_vm = dict(
+            data=vm.get('data'),
+            headers=[str(i) for i in headers]
+        )
+        return JsonResponse(new_vm)
+
+    def post(self, request, query_id):
+        if not app_settings.EXPLORER_PERMISSION_CHANGE(request.user):
+            return HttpResponseRedirect(
+                reverse_lazy('query_detail', kwargs={'query_id': query_id})
+            )
+        show = url_get_show(request)
+        query, form = QueryView.get_instance_and_form(request, query_id)
+        success = form.is_valid() and form.save()
+        vm = query_viewmodel(request.user,
+                             query,
+                             form=form,
+                             run_query=show,
+                             rows=url_get_rows(request),
+                             message="Query saved." if success else None)
+        from pprint import pprint
+        pprint(vm)
+        headers = vm.get('headers')
+        new_vm = dict(
+            data=vm.get('data'),
+            headers=[str(i) for i in headers]
+        )
+        # return self.render_template('explorer/query.html', vm)
+        return JsonResponse(new_vm,safe=False)
+
+    @staticmethod
+    def get_instance_and_form(request, query_id):
+        query = get_object_or_404(Query, pk=query_id)
+        query.params = url_get_params(request)
+        form = QueryForm(request.POST if len(request.POST) else None, instance=query)
+        return query, form
+
+def query_viewmodel(user, query, title=None, form=None, message=None, run_query=True, error=None,
+                    rows=app_settings.EXPLORER_DEFAULT_ROWS):
     res = None
     ql = None
     if run_query:

@@ -12,10 +12,12 @@ from explorer.views import (
     EmailCsvQueryView,
     SchemaView,
     format_sql,
+QueryViewJson,
 )
 
 urlpatterns = [
     url(r'(?P<query_id>\d+)/$', QueryView.as_view(), name='query_detail'),
+    url(r'(?P<query_id>\d+)/json$', QueryViewJson.as_view(), name='query_detail'),
     url(r'(?P<query_id>\d+)/download$', DownloadQueryView.as_view(), name='download_query'),
     url(r'(?P<query_id>\d+)/stream$', StreamQueryView.as_view(), name='stream_query'),
     url(r'download$', DownloadFromSqlView.as_view(), name='download_sql'),
